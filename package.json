@@ -1,0 +1,42 @@
+{
+  "name": "@dofu-lab/simui-cli",
+  "version": "0.1.2",
+  "description": "CLI to add SimUI components to your Angular project",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "simui": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.4.0",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "angular",
+    "simui",
+    "spartan",
+    "cli",
+    "components"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tdphuong/simui"
+  }
+}
