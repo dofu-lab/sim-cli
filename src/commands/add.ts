@@ -1,10 +1,10 @@
 import * as p from "@clack/prompts";
 import chalk from "chalk";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, posix, resolve } from "node:path";
 import { execSync } from "node:child_process";
-import { fetchComponent } from "../utils/registry.js";
-import { detectPackageManager, parseDeps } from "../utils/deps.js";
+import { fetchComponent, fetchRegistryContent } from "../utils/registry.js";
+import { detectPackageManager, parseDeps, parseSimImports } from "../utils/deps.js";
 
 export interface AddOptions {
   /** Override output directory (relative to cwd) */
@@ -33,6 +33,135 @@ export async function addComponent(
       dir = parent;
     }
     return null;
+  }
+
+  function readComponentsConfig(projectRoot: string): { componentsPath: string } | null {
+    const configPath = join(projectRoot, "components.json");
+    if (!existsSync(configPath)) {
+      return null;
+    }
+
+    try {
+      const raw = readFileSync(configPath, "utf-8");
+      const parsed = JSON.parse(raw) as { componentsPath?: unknown };
+      if (typeof parsed.componentsPath !== "string" || !parsed.componentsPath.trim()) {
+        return null;
+      }
+      return { componentsPath: parsed.componentsPath };
+    } catch {
+      return null;
+    }
+  }
+
+  function extractRelativeImports(fileContent: string): string[] {
+    const imports = new Set<string>();
+    const regex =
+      /(from\s+['"](\.{1,2}\/[^'"]+)['"])|(import\s+['"](\.{1,2}\/[^'"]+)['"])|(export\s+\*\s+from\s+['"](\.{1,2}\/[^'"]+)['"])/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(fileContent)) !== null) {
+      const value = match[2] ?? match[4] ?? match[6];
+      if (value) imports.add(value);
+    }
+    return [...imports];
+  }
+
+  function normalizeRegistryPath(filePath: string): string {
+    const withoutExt = filePath.replace(/\.ts$/i, "");
+    const segments = withoutExt.split("/").filter(Boolean);
+    return segments.join("/");
+  }
+
+  function getRegistryCandidates(baseDir: string, importPath: string): string[] {
+    const resolved = normalizeRegistryPath(posix.normalize(posix.join(baseDir, importPath)));
+    if (/\.[a-z]+$/i.test(importPath)) {
+      return [resolved];
+    }
+    return [resolved, normalizeRegistryPath(posix.join(resolved, "index"))];
+  }
+
+  async function fetchSimModuleFiles(moduleName: string): Promise<Map<string, string>> {
+    const files = new Map<string, string>();
+    const queue: Array<{ path: string; optional: boolean }> = [
+      { path: `sim/${moduleName}/index`, optional: false },
+    ];
+    const visited = new Set<string>();
+
+    while (queue.length > 0) {
+      const next = queue.shift();
+      if (!next || visited.has(next.path)) continue;
+      visited.add(next.path);
+
+      let content: string;
+      try {
+        content = await fetchRegistryContent(next.path, "Sim file");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (next.optional && message.includes("was not found")) {
+          continue;
+        }
+        throw error;
+      }
+      files.set(next.path, content);
+
+      const currentDir = posix.dirname(next.path);
+      const relativeImports = extractRelativeImports(content);
+      for (const relativeImport of relativeImports) {
+        const candidates = getRegistryCandidates(currentDir, relativeImport);
+        for (const candidate of candidates) {
+          if (!visited.has(candidate)) {
+            queue.push({ path: candidate, optional: true });
+          }
+        }
+      }
+    }
+
+    return files;
+  }
+
+  function writeSimFiles(projectRoot: string, modules: Map<string, Map<string, string>>): number {
+    const config = readComponentsConfig(projectRoot);
+    const configuredComponentsPath = config?.componentsPath ?? "src/libs/ui";
+    const componentsPath = resolve(projectRoot, configuredComponentsPath);
+    const libsDir = dirname(componentsPath);
+    const simBaseDir = join(libsDir, "sim");
+    let written = 0;
+
+    for (const [moduleName, moduleFiles] of modules.entries()) {
+      for (const [registryPath, content] of moduleFiles.entries()) {
+        const modulePrefix = `sim/${moduleName}/`;
+        if (!registryPath.startsWith(modulePrefix)) continue;
+        const relativePath = registryPath.slice(modulePrefix.length);
+        const destinationFile = join(simBaseDir, moduleName, `${relativePath}.ts`);
+        mkdirSync(dirname(destinationFile), { recursive: true });
+        writeFileSync(destinationFile, content, "utf-8");
+        written++;
+      }
+    }
+
+    return written;
+  }
+
+  function updateTsconfigSimPaths(projectRoot: string, simModules: string[]): void {
+    if (simModules.length === 0) return;
+    const tsconfigPath = join(projectRoot, "tsconfig.json");
+    if (!existsSync(tsconfigPath)) return;
+
+    const tsconfigRaw = readFileSync(tsconfigPath, "utf-8");
+    const tsconfig = JSON.parse(tsconfigRaw) as {
+      compilerOptions?: { paths?: Record<string, string[]> };
+    };
+
+    if (!tsconfig.compilerOptions) tsconfig.compilerOptions = {};
+    if (!tsconfig.compilerOptions.paths) tsconfig.compilerOptions.paths = {};
+
+    for (const moduleName of simModules) {
+      const key = `@sim/${moduleName}`;
+      if (!tsconfig.compilerOptions.paths[key]) {
+        tsconfig.compilerOptions.paths[key] = [`./src/libs/sim/${moduleName}/index.ts`];
+      }
+    }
+
+    writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`, "utf-8");
   }
 
   p.intro(chalk.bold.cyan(`SimUI`) + chalk.dim(` — adding ${componentName}`));
@@ -76,7 +205,7 @@ export async function addComponent(
 
   // ── 4. Write file ─────────────────────────────────────────────────────────
   try {
-    mkdirSync(outputDir, { recursive: true });
+    mkdirSync(dirname(outputFile), { recursive: true });
     writeFileSync(outputFile, content, "utf-8");
   } catch (err) {
     p.outro(
@@ -89,6 +218,29 @@ export async function addComponent(
 
   const relativePath = outputFile.replace(cwd + "/", "");
   p.log.success(`Created ${chalk.cyan(relativePath)}`);
+
+  // Pull and write @sim/* sources from registry.
+  const { simModules } = parseSimImports(content);
+  if (simModules.length > 0) {
+    const simSpinner = p.spinner();
+    simSpinner.start(`Resolving ${simModules.length} @sim module(s) from registry…`);
+    try {
+      const simModuleFiles = new Map<string, Map<string, string>>();
+      for (const moduleName of simModules) {
+        const files = await fetchSimModuleFiles(moduleName);
+        simModuleFiles.set(moduleName, files);
+      }
+      const writtenCount = writeSimFiles(installCwd, simModuleFiles);
+      updateTsconfigSimPaths(installCwd, simModules);
+      simSpinner.stop(
+        chalk.green(`Synced ${writtenCount} sim source file(s) and updated tsconfig paths`),
+      );
+    } catch (err) {
+      simSpinner.stop(chalk.red("Failed to sync @sim sources"));
+      p.outro(chalk.red(String(err instanceof Error ? err.message : err)));
+      process.exit(1);
+    }
+  }
 
   // ── 5. Detect dependencies ────────────────────────────────────────────────
   const { spartanHelm, ngIcons } = parseDeps(content);

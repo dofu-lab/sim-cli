@@ -5,7 +5,14 @@ export interface RegistryComponent {
 }
 
 export async function fetchComponent(name: string): Promise<string> {
-  const url = `${REGISTRY_BASE_URL}/${name}.json`;
+  return fetchRegistryContent(name, "Component");
+}
+
+export async function fetchRegistryContent(
+  registryPath: string,
+  label: string = "File",
+): Promise<string> {
+  const url = `${REGISTRY_BASE_URL}/${registryPath}.json`;
 
   let response: Response;
   try {
@@ -17,18 +24,18 @@ export async function fetchComponent(name: string): Promise<string> {
   if (!response.ok) {
     if (response.status === 404 || response.status >= 500) {
       throw new Error(
-        `Component "${name}" was not found in the SimUI registry.\n` +
+        `${label} "${registryPath}" was not found in the SimUI registry.\n` +
           `Browse available components at https://simui.dev`,
       );
     }
-    throw new Error(`Failed to fetch "${name}" (HTTP ${response.status})`);
+    throw new Error(`Failed to fetch "${registryPath}" (HTTP ${response.status})`);
   }
 
   let data: unknown;
   try {
     data = await response.json();
   } catch {
-    throw new Error(`Invalid response from registry for "${name}"`);
+    throw new Error(`Invalid response from registry for "${registryPath}"`);
   }
 
   if (
@@ -38,7 +45,7 @@ export async function fetchComponent(name: string): Promise<string> {
     typeof (data as RegistryComponent).content !== "string"
   ) {
     throw new Error(
-      `Unexpected registry format for "${name}" — expected { content: string }`,
+      `Unexpected registry format for "${registryPath}" — expected { content: string }`,
     );
   }
 

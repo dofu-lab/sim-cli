@@ -8,6 +8,11 @@ export interface ParsedDeps {
   ngIcons: string[];
 }
 
+export interface ParsedSimImports {
+  /** e.g. ['event-calendar', 'file'] extracted from @sim/* imports */
+  simModules: string[];
+}
+
 /**
  * Parses the component TypeScript source and extracts all
  * @spartan-ng/helm/* and @ng-icons/* import paths.
@@ -32,6 +37,32 @@ export function parseDeps(content: string): ParsedDeps {
   return {
     spartanHelm: [...spartanHelmSet],
     ngIcons: [...ngIconsSet],
+  };
+}
+
+/**
+ * Parses TypeScript source and extracts first-level @sim module names.
+ * Examples:
+ * - "@sim/event-calendar" -> "event-calendar"
+ * - "@sim/event-calendar/services" -> "event-calendar"
+ */
+export function parseSimImports(content: string): ParsedSimImports {
+  const simModules = new Set<string>();
+  const simRegexes = [
+    /from\s+['"]@sim\/([a-z0-9-]+)(?:\/[^'"]*)?['"]/gi,
+    /from\s+['"]@\/libs\/sim\/([a-z0-9-]+)(?:\/[^'"]*)?['"]/gi,
+    /from\s+['"]src\/libs\/sim\/([a-z0-9-]+)(?:\/[^'"]*)?['"]/gi,
+  ];
+  let match: RegExpExecArray | null;
+
+  for (const regex of simRegexes) {
+    while ((match = regex.exec(content)) !== null) {
+      simModules.add(match[1]);
+    }
+  }
+
+  return {
+    simModules: [...simModules],
   };
 }
 
