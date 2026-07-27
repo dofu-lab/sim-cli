@@ -29,8 +29,20 @@ program
     "-p, --path <path>",
     "Output directory relative to cwd (default: src/app/components)",
   )
-  .action(async (component: string, opts: { path?: string }) => {
-    await addComponent(component, { path: opts.path });
-  });
+  .option(
+    "--spartan-version <version>",
+    "Fetch source compatible with an exact published SpartanNG version",
+  )
+  .action(
+    async (
+      component: string,
+      opts: { path?: string; spartanVersion?: string },
+    ) => {
+      await addComponent(component, {
+        path: opts.path,
+        spartanVersion: opts.spartanVersion,
+      });
+    },
+  );
 
-program.parse(process.argv);
+await program.parseAsync(process.argv);

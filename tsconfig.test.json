@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
+    "outDir": ".test-dist"
+  },
+  "include": ["src/utils/registry.ts", "src/utils/registry.spec.ts"]
+}

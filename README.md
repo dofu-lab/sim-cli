@@ -10,6 +10,7 @@ This tool fetches component source from the SimUI registry (https://simui.dev/re
 Features
 
 - Fetch a component by name and inject it into your project
+- Fetch a versioned source snapshot for an exact SpartanNG version
 - Detects `@spartan-ng/helm/*` and `@ng-icons/*` imports and offers to install them
 - Default output path: `src/app/components` (configurable with `--path`)
 
@@ -40,6 +41,9 @@ npx @dofu-lab/simui-cli add accordion-01
 
 # Override output directory
 node dist/index.js add badge-01 --path src/shared/ui
+
+# Fetch source compatible with an exact SpartanNG release
+npx @dofu-lab/simui-cli add button-01 --spartan-version 1.1.2
 ```
 
 Commands
@@ -49,10 +53,11 @@ Commands
 Options
 
 - `-p, --path <dir>` — Output directory relative to the current working directory (default: `src/app/components`).
+- `--spartan-version <version>` — Fetch the component and its `@sim/*` dependencies from a versioned registry snapshot for an exact published SpartanNG version.
 
 What the command does
 
-1. Fetches `https://simui.dev/registry/<name>.json` and reads the `content` field.
+1. Resolves the requested SpartanNG release through the registry manifest, looks up each source file in the release index, and fetches its immutable content-addressed blob. When no version is supplied, the manifest's latest release is used.
 2. Writes the TypeScript component file to the chosen output path.
 3. Parses the source for `@spartan-ng/helm/*` and `@ng-icons/*` imports.
 4. Prompts to install dependencies. Spartan packages are invoked via the Angular generator:
@@ -68,6 +73,8 @@ Development
 ```bash
 cd packages/cli
 npm install
+npm test
+npm run typecheck
 npm run build
 # Run the CLI locally
 node dist/index.js add select-01
